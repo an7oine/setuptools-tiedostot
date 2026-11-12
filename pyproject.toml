@@ -1,0 +1,18 @@
+[build-system]
+requires = ["git-versiointi>=1.7rc4", "setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+authors = [{name = "Antti Hautaniemi", email = "antti.hautaniemi@me.com"}]
+dependencies = ["pip", "setuptools>=70.1"]
+description = "Riippuvuuksineen asennettu tiedostolista paketin metadatassa"
+dynamic = ["version"]
+name = "setuptools-tiedostot"
+requires-python = ">= 3.10"
+urls = {Homepage = "https://github.com/an7oine/setuptools-tiedostot.git"}
+
+[project.entry-points."egg_info.writers"]
+"asennetut-tiedostot.txt" = "setuptools_tiedostot:kirjoita_asennetut_tiedostot"
+
+[tool.setuptools]
+py-modules = ["setuptools_tiedostot"]
