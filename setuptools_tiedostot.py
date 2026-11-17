@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import tempfile
@@ -11,6 +12,10 @@ except ModuleNotFoundError:
   import tomli as tomllib
 
 from setuptools.errors import SetupError
+
+# Prosessin sisäinen välimuisti: `python -m build` ajaa egg_info-
+# kirjoittimen useita kertoja, usein erillisissä prosesseissa.
+_LISTAUS_VALIMUISTI: dict[tuple[str, ...], list[str]] = {}
 
 
 def kirjoita_asennetut_tiedostot(cmd, basename, filename):
@@ -39,21 +44,78 @@ def projektin_juuri(cmd) -> Path:
   # def projektin_juuri
 
 
+def valimuisti_juuri() -> Path:
+  '''
+  Levyvälimuistin hakemisto. Sama listaus kelpaa kaikille
+  rakennusvaiheille, joilla on sama dependencies-lista.
+  '''
+  yli = os.environ.get("SETUPTOOLS_TIEDOSTOT_CACHE")
+  if yli:
+    return Path(yli)
+  return Path(tempfile.gettempdir()) / "setuptools-tiedostot"
+  # def valimuisti_juuri
+
+
+def valimuisti_polku(vaatimukset: list[str]) -> Path:
+  ''' Vaatimuslistan tiivisteestä muodostettu välimuistitiedosto. '''
+  tiiviste = hashlib.sha256(
+    "\n".join(vaatimukset).encode("utf-8"),
+  ).hexdigest()
+  return valimuisti_juuri() / f"{tiiviste}.txt"
+  # def valimuisti_polku
+
+
+def lue_valimuisti(vaatimukset: list[str]) -> list[str] | None:
+  ''' Palauta aiemmin koottu listaus tai None. '''
+  avain = tuple(vaatimukset)
+  if avain in _LISTAUS_VALIMUISTI:
+    return _LISTAUS_VALIMUISTI[avain]
+  polku = valimuisti_polku(vaatimukset)
+  if not polku.is_file():
+    return None
+  rivit = [
+    rivi for rivi in polku.read_text(encoding="utf-8").splitlines()
+    if rivi
+  ]
+  _LISTAUS_VALIMUISTI[avain] = rivit
+  return rivit
+  # def lue_valimuisti
+
+
+def kirjoita_valimuisti(
+  vaatimukset: list[str],
+  rivit: list[str],
+) -> None:
+  ''' Tallenna listaus prosessin ja levyn välimuistiin. '''
+  avain = tuple(vaatimukset)
+  _LISTAUS_VALIMUISTI[avain] = rivit
+  polku = valimuisti_polku(vaatimukset)
+  polku.parent.mkdir(parents=True, exist_ok=True)
+  polku.write_text("\n".join(rivit), encoding="utf-8")
+  # def kirjoita_valimuisti
+
+
 def kokoa_tiedostolistaus(juuri: Path, jakelu) -> list[str] | None:
   '''
   Hae pyproject.toml-riippuvuuksien wheelit ja palauta niiden
-  tiedostopolut ilman metadatahakemistoja.
+  tiedostopolut ilman metadatahakemistoja. Sama vaatimuslista
+  kootaan vain kerran.
   '''
   vaatimukset = pakettivaatimukset(juuri, jakelu)
   if not vaatimukset:
     return None
+  valmis = lue_valimuisti(vaatimukset)
+  if valmis is not None:
+    return valmis
   with tempfile.TemporaryDirectory(
     prefix="setuptools-tiedostot-",
   ) as tila:
     hakemisto = Path(tila)
     hae_wheelit(vaatimukset, hakemisto)
-    return tiedostot_paketeista(hakemisto)
+    rivit = tiedostot_paketeista(hakemisto)
   # with tempfile.TemporaryDirectory
+  kirjoita_valimuisti(vaatimukset, rivit)
+  return rivit
   # def kokoa_tiedostolistaus
 
 

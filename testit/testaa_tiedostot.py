@@ -6,9 +6,11 @@ import textwrap
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from setuptools.errors import SetupError
 
+import setuptools_tiedostot
 from setuptools_tiedostot import (
   hae_wheelit,
   kirjoita_asennetut_tiedostot,
@@ -215,13 +217,44 @@ class TestaaKokoaminen(unittest.TestCase):
       wheel = _esimerkkiwheel(kanta)
       viite = f"esimerkki @ {wheel.as_uri()}"
       _kirjoita_pyproject(juuri, [viite])
-      polut = kokoa_tiedostolistaus(juuri, _jakelu([viite]))
+      with _valimuisti(kanta / "cache"):
+        polut = kokoa_tiedostolistaus(juuri, _jakelu([viite]))
     # with tempfile.TemporaryDirectory
     self.assertEqual(
       polut,
       ["esimerkki/migrations/0001_alku.py"],
     )
     # def testaa_kokoa_palauttaa_wheelien_polut
+
+  def testaa_kokoa_kayttaa_valimuistia(self) -> None:
+    with tempfile.TemporaryDirectory() as tila:
+      kanta = Path(tila)
+      juuri = kanta / "projekti"
+      juuri.mkdir()
+      wheel = _esimerkkiwheel(kanta)
+      viite = f"esimerkki @ {wheel.as_uri()}"
+      _kirjoita_pyproject(juuri, [viite])
+      jakelu = _jakelu([viite])
+      with _valimuisti(kanta / "cache"):
+        with patch(
+          "setuptools_tiedostot.hae_wheelit",
+          wraps=hae_wheelit,
+        ) as haku:
+          eka = kokoa_tiedostolistaus(juuri, jakelu)
+          toka = kokoa_tiedostolistaus(juuri, jakelu)
+        # Uusi prosessi: vain levyvälimuisti jäljellä.
+        setuptools_tiedostot._LISTAUS_VALIMUISTI.clear()
+        with patch(
+          "setuptools_tiedostot.hae_wheelit",
+          wraps=hae_wheelit,
+        ) as haku_uudelleen:
+          kolmas = kokoa_tiedostolistaus(juuri, jakelu)
+    # with tempfile.TemporaryDirectory
+    self.assertEqual(eka, toka)
+    self.assertEqual(eka, kolmas)
+    self.assertEqual(haku.call_count, 1)
+    self.assertEqual(haku_uudelleen.call_count, 0)
+    # def testaa_kokoa_kayttaa_valimuistia
 
   def testaa_kokoa_dynaamisesta_dependenciesista(self) -> None:
     with tempfile.TemporaryDirectory() as tila:
@@ -231,7 +264,8 @@ class TestaaKokoaminen(unittest.TestCase):
       wheel = _esimerkkiwheel(kanta)
       viite = f"esimerkki @ {wheel.as_uri()}"
       _kirjoita_pyproject(juuri, dynaaminen=True)
-      polut = kokoa_tiedostolistaus(juuri, _jakelu([viite]))
+      with _valimuisti(kanta / "cache"):
+        polut = kokoa_tiedostolistaus(juuri, _jakelu([viite]))
     # with tempfile.TemporaryDirectory
     self.assertEqual(
       polut,
@@ -290,11 +324,12 @@ class TestaaKokoaminen(unittest.TestCase):
       viite = f"esimerkki @ {wheel.as_uri()}"
       _kirjoita_pyproject(juuri, [viite])
       cmd = _Komento(juuri, [viite])
-      kirjoita_asennetut_tiedostot(
-        cmd,
-        "asennetut-tiedostot.txt",
-        "egg-info/asennetut-tiedostot.txt",
-      )
+      with _valimuisti(kanta / "cache"):
+        kirjoita_asennetut_tiedostot(
+          cmd,
+          "asennetut-tiedostot.txt",
+          "egg-info/asennetut-tiedostot.txt",
+        )
     # with tempfile.TemporaryDirectory
     self.assertEqual(cmd.tulos, (
       "asennetut-tiedostot",
@@ -304,6 +339,32 @@ class TestaaKokoaminen(unittest.TestCase):
     # def testaa_kirjoitin_kirjoittaa_polut
 
   # class TestaaKokoaminen
+
+
+class _valimuisti:
+  ''' Eristä levyvälimuisti ja tyhjennä prosessimuisti. '''
+
+  def __init__(self, hakemisto: Path) -> None:
+    self.hakemisto = hakemisto
+    self._vanha = None
+    # def __init__
+
+  def __enter__(self):
+    setuptools_tiedostot._LISTAUS_VALIMUISTI.clear()
+    self._vanha = os.environ.get("SETUPTOOLS_TIEDOSTOT_CACHE")
+    os.environ["SETUPTOOLS_TIEDOSTOT_CACHE"] = str(self.hakemisto)
+    return self
+    # def __enter__
+
+  def __exit__(self, *args) -> None:
+    setuptools_tiedostot._LISTAUS_VALIMUISTI.clear()
+    if self._vanha is None:
+      os.environ.pop("SETUPTOOLS_TIEDOSTOT_CACHE", None)
+    else:
+      os.environ["SETUPTOOLS_TIEDOSTOT_CACHE"] = self._vanha
+    # def __exit__
+
+  # class _valimuisti
 
 
 if __name__ == "__main__":

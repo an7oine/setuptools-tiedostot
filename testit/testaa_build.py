@@ -120,6 +120,10 @@ class TestaaBuild(unittest.TestCase):
     ymp_env["PATH"] = str(ymp / "bin") + os.pathsep + ymp_env.get(
       "PATH", "",
     )
+    # Sama välimuisti sdist- ja wheel-vaiheille.
+    ymp_env["SETUPTOOLS_TIEDOSTOT_CACHE"] = str(
+      projekti.parent / "tiedostot-cache",
+    )
     subprocess.check_call(
       [str(ymp / "bin" / "python"), "-m", "build", "--no-isolation"],
       cwd=projekti,
